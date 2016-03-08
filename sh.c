@@ -147,12 +147,12 @@ int sh( int argc, char **argv, char **envp )
 	/* Built in which */
 	else if (strcmp(args[0], "which") == 0) {
  	    printf("Executing built-in [%s]\n", args[0]);
-		if(args[1] == NULL) printf("which: Too few arguments.\n");
+		if(args[1] == NULL) fprintf(stderr, "which: Too few arguments.\n");
 		i = 1;
 		while(args[i] != NULL) {
 			char *wh;
 	    	wh = which(args[i], pathlist);
-			if(wh == NULL) printf("%s: Command not found.\n", args[i]);
+			if(wh == NULL) fprintf(stderr, "%s: Command not found.\n", args[i]);
 			else printf("%s\n", wh);
 			free(wh);
 			i++;
@@ -162,7 +162,7 @@ int sh( int argc, char **argv, char **envp )
 	/* Built in where */
 	else if (strcmp(args[0], "where") == 0) {
  	    printf("Executing built-in [%s]\n", args[0]);
-		if(args[1] == NULL) printf("where: Too few arguments.\n");
+		if(args[1] == NULL) fprintf(stderr, "where: Too few arguments.\n");
 		i = 1;
 		while(args[i] != NULL) {
 			where(args[i], pathlist);
@@ -189,12 +189,12 @@ int sh( int argc, char **argv, char **envp )
 	else if (strcmp(args[0], "printenv") == 0) {
  	    printf("Executing built-in [%s]\n", args[0]);
 	    if(args[2] != NULL) {
-			printf("%s: Too many arguments.\n", args[0]);
+			fprintf(stderr, "%s: Too many arguments.\n", args[0]);
 	    } else if (args[1] != NULL) { 
 			char *tmp;
 			tmp = getenv(args[1]);
 			if(tmp == NULL)
-				printf("%s: Environmental variable not found.\n", args[1]);
+				fprintf(stderr, "%s: Environmental variable not found.\n", args[1]);
 			else
 				printf("%s\n", tmp);
 			tmp = NULL;
@@ -211,7 +211,7 @@ int sh( int argc, char **argv, char **envp )
 	/* Built in setenv */
 	else if (strcmp(args[0], "setenv") == 0) {
  	    printf("Executing built-in [%s]\n", args[0]);
-		if(args[3] != NULL) printf("%s: Too many arguments.\n", args[0]);
+		if(args[3] != NULL) fprintf(stderr, "%s: Too many arguments.\n", args[0]);
 		else if (args[2] != NULL) {
 			setenv(args[1], args[2], 1);
 		} else if (args[1] != NULL) {
@@ -273,7 +273,7 @@ int sh( int argc, char **argv, char **envp )
 	else if (strcmp(args[0], "kill") == 0) {
  	    printf("Executing built-in [%s]\n", args[0]);
 		if(args[1] == NULL) {
-			printf("kill: Too few arguments.\n");
+			fprintf(stderr, "kill: Too few arguments.\n");
 		} else if(args[2] == NULL || strchr(args[1], '-') == NULL) {
 			i = 1;
 			while(args[i] != NULL) {
@@ -306,13 +306,13 @@ int sh( int argc, char **argv, char **envp )
 				waitpid(pid, NULL, 0);
 			}
 		} else {
-			printf("%s: Command not found.\n", args[0]);
+			fprintf(stderr,"%s: Command not found.\n", args[0]);
 		}
 	} 
 
 	/* MAXARGS handler */
 	else if (strcmp(args[0], "maxargs") == 0) {
-	    printf("Error: Too many arguments.\n");
+	    fprintf(stderr, "Error: Too many arguments.\n");
 	} 
 
 	/* Executable */
@@ -459,7 +459,7 @@ void kill_process_signal(char* process, char *signal)
 	if(atoi(process) && atoi(signal))
     	i = kill(atoi(process), atoi(signal));
     else
-    	printf("kill: Arguments should be jobs or process id's.\n");
+    	fprintf(stderr, "kill: Arguments should be jobs or process id's.\n");
     if(i == -1)
     	perror(process);
 }
@@ -471,7 +471,7 @@ void kill_process(char *process)
 	if(atoi(process))
 		i = kill(atoi(process),SIGTERM);
 	else
-		printf("kill: Arguments should be jobs or process id's.\n");
+		fprintf(stderr, "kill: Arguments should be jobs or process id's.\n");
 	if(i==-1)
 		perror(process);
 }
