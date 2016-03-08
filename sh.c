@@ -335,19 +335,19 @@ int sh( int argc, char **argv, char **envp )
 			} 
     	}
 
-	/* Reset args */
-	i = 0;
-	while(args[i] != NULL) {
-	    free(args[i]);
-	    args[i] = NULL;
-	    i++;
-	}
+		/* Reset args */
+		i = 0;
+		while(args[i] != NULL) {
+	    	free(args[i]);
+	    	args[i] = NULL;
+	    	i++;
+		}
 
-	/* Print prompt again */
-    printf(prompt);
-	printf(" [");
-	printf(pwd);
-	printf("]> ");
+		/* Print prompt again */
+    	printf(prompt);
+		printf(" [");
+		printf(pwd);
+		printf("]> ");
     	}
 	}
 
