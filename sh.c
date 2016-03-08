@@ -225,6 +225,7 @@ int sh( int argc, char **argv, char **envp )
 			aliases = add_alias(aliases, args[1], buf);
 		}
 	} else if (strcmp(args[0], "kill") == 0) {
+ 	    printf("Executing built-in [%s]\n", args[0]);
 		if(args[1] == NULL) {
 			printf("kill: Too few arguments.\n");
 		} else if(args[2] == NULL || strchr(args[1], '-') == NULL) {
@@ -250,6 +251,7 @@ int sh( int argc, char **argv, char **envp )
 			if(pid == -1) {
 				perror("fork");
 			} else if(pid == 0) {              /* Child */
+ 	    		printf("Executing [%s]\n", args[0]);
 				execve(args[0], args, environ);
 				perror(args[0]);
 				exit(127);
@@ -262,12 +264,12 @@ int sh( int argc, char **argv, char **envp )
 	} else {
 		char *wh;
 		wh = which(args[0], pathlist);
-		printf("wh: %s\n", wh);
 		if(wh == NULL) fprintf(stderr, "%s: Command not found.\n", args[0]);   
 		else {
 			pid_t pid = fork();
 			if(pid == -1) perror("fork");
 			else if (pid == 0) {
+ 	    		printf("Executing [%s]\n", wh);
 				execve(wh, args, environ);
 				perror(wh);
 				exit(127);
@@ -374,7 +376,7 @@ void list ( char *dir )
   dirstream = opendir(dir);
 
   if(dirstream == NULL) {
-    printf("Error opening: %s", dir);
+	perror(dir);
   } else {
     printf("%s:\n", dir);
     while((files = readdir(dirstream)) != NULL){
