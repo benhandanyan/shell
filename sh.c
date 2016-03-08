@@ -87,7 +87,8 @@ int sh( int argc, char **argv, char **envp )
 	}
 
     /* check for each built in command and implement */
-    if(strcmp(args[0], "list") == 0) {
+	if(args[0] == NULL) break;
+    else if(strcmp(args[0], "list") == 0) {
 	    printf("Executing built-in [%s]\n", args[0]);
 	    i = 1;
 	    if(args[i] == NULL) {
@@ -125,7 +126,11 @@ int sh( int argc, char **argv, char **envp )
 		if(args[1] == NULL) printf("which: Too few arguments.\n");
 		i = 1;
 		while(args[i] != NULL) {
-	    	which(args[i], pathlist);
+			char *wh;
+	    	wh = which(args[i], pathlist);
+			if(wh == NULL) printf("%s: Command not found.\n", args[i]);
+			else printf("%s\n", wh);
+			free(wh);
 			i++;
 		}	    
 	} else if (strcmp(args[0], "where") == 0) {
@@ -239,10 +244,38 @@ int sh( int argc, char **argv, char **envp )
 		}
 	} else if (strcmp(args[0], "maxargs") == 0) {
 	    printf("Error: Too many arguments.\n");
-	} 
-
-	else {
-   	    fprintf(stderr, "%s: Command not found.\n", args[0]);   
+	} else if (strncmp(args[0], "/", 1) == 0 || strncmp(args[0], "./", 2) == 0 || strncmp(args[0], "../", 3) == 0) {
+		if(access(args[0], X_OK) == 0) {
+			pid_t pid = fork();
+			if(pid == -1) {
+				perror("fork");
+			} else if(pid == 0) {              /* Child */
+				execve(args[0], args, environ);
+				perror(args[0]);
+				exit(127);
+			} else {                           /* Parent */
+				waitpid(pid, NULL, 0);
+			}
+		} else {
+			printf("%s: Command not found.\n", args[0]);
+		}
+	} else {
+		char *wh;
+		wh = which(args[0], pathlist);
+		printf("wh: %s\n", wh);
+		if(wh == NULL) fprintf(stderr, "%s: Command not found.\n", args[0]);   
+		else {
+			pid_t pid = fork();
+			if(pid == -1) perror("fork");
+			else if (pid == 0) {
+				execve(wh, args, environ);
+				perror(wh);
+				exit(127);
+			} else {
+				waitpid(pid, NULL, 0);
+			}
+			free(wh);
+		} 
     }
      /*  else  program to exec */
        /* find it */
@@ -303,18 +336,22 @@ char *which(char *command, struct pathelement *pathlist )
    /* loop through pathlist until finding command and return it.  Return
    NULL when not found. */
   struct pathelement *current = pathlist;
-  char buf[MAX_CANON];
+  char *buf;
+  buf = malloc(MAX_CANON * sizeof(char));
   while(current != NULL) {
     snprintf(buf, MAX_CANON, "%s/%s", current->element, command);
 	if(access(buf, F_OK) == 0) {
-    	printf("%s\n", buf);
+    	return buf;
 		break;
     }
     current = current->next;
   }
+  free(buf);
+  buf = NULL;
+  return buf;
 } /* which() */
 
-char *where(char *command, struct pathelement *pathlist )
+void where(char *command, struct pathelement *pathlist )
 {
   /* similarly loop through finding all locations of command */
 	struct pathelement *current = pathlist;
