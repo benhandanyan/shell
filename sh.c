@@ -13,9 +13,10 @@
 #include "sh.h"
 
 int sh( int argc, char **argv, char **envp ) {
+	//signal(SIGINT, sig_handle);
 	signal(SIGINT, sig_handle);
-	signal(SIGTERM, sig_handle);
-	signal(SIGTSTP, sig_handle);
+	signal(SIGTERM, SIG_IGN);
+	signal(SIGTSTP, SIG_IGN);
 	char *prompt = calloc(PROMPTMAX, sizeof(char));
 	char *commandline = calloc(MAX_CANON, sizeof(char));
 	char *command, *arg, *commandpath, *p, *pwd, *owd;
@@ -65,6 +66,7 @@ int sh( int argc, char **argv, char **envp ) {
 
 		/* Get the command */	
 		command = strtok(commandline, sp);
+		if(command == NULL) break;
 
 		//Search for aliases
 		a = 0;	
@@ -322,7 +324,10 @@ int sh( int argc, char **argv, char **envp ) {
 					perror(gl[0]);
 					exit(127);
 				} else {                           /* Parent */
-					waitpid(pid, NULL, 0);
+					waitpid(pid, &status, 0);
+					if(WEXITSTATUS(status) != 0) {
+						printf("Exit: %d\n", WEXITSTATUS(status));
+					}
 				}
 			} else {
 				fprintf(stderr,"%s: Command not found.\n", gl[0]);
@@ -350,7 +355,10 @@ int sh( int argc, char **argv, char **envp ) {
 					perror(wh);
 					exit(127);
 				} else {
-					waitpid(pid, NULL, 0);
+					waitpid(pid, &status, 0);
+					if(WEXITSTATUS(status) != 0){
+						printf("Exit: %d\n", WEXITSTATUS(status));
+					}
 				}
 				free(wh);
 			} 
