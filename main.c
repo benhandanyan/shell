@@ -11,7 +11,7 @@ int main( int argc, char **argv, char **envp )
   return sh(argc, argv, envp);
 }
 
-void sig_handler(int signal)
+void sig_handler(int sig)
 {
   /* define your signal handler */
 }

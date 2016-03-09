@@ -9,21 +9,23 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <glob.h>
 #include "sh.h"
 
-int sh( int argc, char **argv, char **envp )
-{
+int sh( int argc, char **argv, char **envp ) {
 	char *prompt = calloc(PROMPTMAX, sizeof(char));
 	char *commandline = calloc(MAX_CANON, sizeof(char));
 	char *command, *arg, *commandpath, *p, *pwd, *owd;
 	char **args = calloc(MAXARGS, sizeof(char*));
-	int uid, i, status, argsct, a, go = 1;
+	int uid, i, status, argsct, a, g, go = 1;
 	struct passwd *password_entry;
 	char *homedir;
 	struct pathelement *pathlist, *history;
 	struct aliaselement *aliases;
 	const char sp[2] = " ";
 	extern char **environ;
+	glob_t globbuf;
+	char **gl;
 
 	uid = getuid();
 	password_entry = getpwuid(uid);               /* get passwd info */
@@ -50,10 +52,11 @@ int sh( int argc, char **argv, char **envp )
     	printf("]> ");
 
     	i = 0;
+
     	while (fgets(commandline, MAX_CANON, stdin) != NULL) { /* get command line and process */
 		if (commandline[strlen(commandline) - 1] == '\n')
 			commandline[strlen(commandline) - 1] = 0; /* replace newline with null */
-	
+
 		/* Add the command to history */
 		history = add_last(history, commandline);
 
@@ -88,21 +91,32 @@ int sh( int argc, char **argv, char **envp )
 	    	command = strtok(NULL, sp);
 	    	i++;
 		}
-
-    	/* check for each built in command and implement */
+	
+		/* make sure the user passed in something */
 		if(args[0] == NULL) {
 			break;
-    	} 
+		}
 
+		/* Expand wildcard characters */
+		glob(args[0], GLOB_NOCHECK, NULL, &globbuf);
+		i = 1;	
+		while(args[i] != NULL) {
+ 			g = glob(args[i], GLOB_APPEND | GLOB_NOCHECK, NULL, &globbuf);
+			i++;
+		}
+		
+		gl = globbuf.gl_pathv;
+	
+    	/* check for each built in command and implement */
 		/* Built in list */
-		else if(strcmp(args[0], "list") == 0) {
-	    	printf("Executing built-in [%s]\n", args[0]);
+		if(strcmp(gl[0], "list") == 0) {
+	    	printf("Executing built-in [%s]\n", gl[0]);
 	    	i = 1;
-	    	if(args[i] == NULL) {
+	    	if(gl[i] == NULL) {
 	    		list(pwd);
 	    	} else {
-	        	while(args[i] != NULL) {
-	            	list(args[i]);
+	        	while(gl[i] != NULL) {
+	            	list(gl[i]);
 		    		printf("\n");
 		    		i++;
 	        	}
@@ -110,47 +124,47 @@ int sh( int argc, char **argv, char **envp )
     	} 
 
 		/* Built in exit */
-		else if (strcmp(args[0], "exit") == 0) {
+		else if (strcmp(gl[0], "exit") == 0) {
 			printf("exit\n");
 	    	go = 0;
 	    	break;
 		} 
 
 		/* Built in prompt */
-		else if (strcmp(args[0], "prompt") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
-	    	if(args[1] == NULL) {
+		else if (strcmp(gl[0], "prompt") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
+	    	if(gl[1] == NULL) {
 				printf("input prompt prefix:");
 				fgets(prompt, PROMPTMAX, stdin);
 				if(prompt[strlen(prompt) - 1] == '\n')
 		    		prompt[strlen(prompt) - 1] = 0;
 	    	} else {
-				strncpy(prompt, args[1], PROMPTMAX);
+				strncpy(prompt, gl[1], PROMPTMAX);
 	    	}
 		} 
 
 		/* Built in pwd */
-		else if (strcmp(args[0], "pwd") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
+		else if (strcmp(gl[0], "pwd") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
 	    	printf(pwd);
 	    	printf("\n");
 		} 
 
 		/* Built in pid */
-		else if (strcmp(args[0], "pid") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
+		else if (strcmp(gl[0], "pid") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
 	    	printf("%d\n", getpid());
 		} 
 
 		/* Built in which */
-		else if (strcmp(args[0], "which") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
-			if(args[1] == NULL) fprintf(stderr, "which: Too few arguments.\n");
+		else if (strcmp(gl[0], "which") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
+			if(gl[1] == NULL) fprintf(stderr, "which: Too few arguments.\n");
 			i = 1;
-			while(args[i] != NULL) {
+			while(gl[i] != NULL) {
 				char *wh;
-	    		wh = which(args[i], pathlist);
-				if(wh == NULL) fprintf(stderr, "%s: Command not found.\n", args[i]);
+	    		wh = which(gl[i], pathlist);
+				if(wh == NULL) fprintf(stderr, "%s: Command not found.\n", gl[i]);
 				else printf("%s\n", wh);
 				free(wh);
 				i++;
@@ -158,21 +172,21 @@ int sh( int argc, char **argv, char **envp )
 		} 
 
 		/* Built in where */
-		else if (strcmp(args[0], "where") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
-			if(args[1] == NULL) fprintf(stderr, "where: Too few arguments.\n");
+		else if (strcmp(gl[0], "where") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
+			if(gl[1] == NULL) fprintf(stderr, "where: Too few arguments.\n");
 			i = 1;
-			while(args[i] != NULL) {
-				where(args[i], pathlist);
+			while(gl[i] != NULL) {
+				where(gl[i], pathlist);
 				i++;
 			}	
 		} 
 
 		/* Built in cd */
-		else if (strcmp(args[0], "cd") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
+		else if (strcmp(gl[0], "cd") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
 	    	char *tmp;	    
-	    	tmp = cd(args[1], homedir, owd);
+	    	tmp = cd(gl[1], homedir, owd);
 	    	if(tmp == NULL) {
 				break;
 	    	} else {
@@ -184,15 +198,15 @@ int sh( int argc, char **argv, char **envp )
 		} 
 
 		/* Built in printenv */
-		else if (strcmp(args[0], "printenv") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
-	    	if(args[2] != NULL) {
-				fprintf(stderr, "%s: Too many arguments.\n", args[0]);
-	    	} else if (args[1] != NULL) { 
+		else if (strcmp(gl[0], "printenv") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
+	    	if(gl[2] != NULL) {
+				fprintf(stderr, "%s: Too many arguments.\n", gl[0]);
+	    	} else if (gl[1] != NULL) { 
 				char *tmp;
-				tmp = getenv(args[1]);
+				tmp = getenv(gl[1]);
 				if(tmp == NULL)
-					fprintf(stderr, "%s: Environmental variable not found.\n", args[1]);
+					fprintf(stderr, "%s: Environmental variable not found.\n", gl[1]);
 				else
 					printf("%s\n", tmp);
 				tmp = NULL;
@@ -206,14 +220,14 @@ int sh( int argc, char **argv, char **envp )
 		} 
 
 		/* Built in setenv */
-		else if (strcmp(args[0], "setenv") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
-			if(args[3] != NULL) {
-				fprintf(stderr, "%s: Too many arguments.\n", args[0]);
-			} else if (args[2] != NULL) {
-				setenv(args[1], args[2], 1);
-			} else if (args[1] != NULL) {
-				setenv(args[1], "", 1);
+		else if (strcmp(gl[0], "setenv") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
+			if(gl[3] != NULL) {
+				fprintf(stderr, "%s: Too many arguments.\n", gl[0]);
+			} else if (gl[2] != NULL) {
+				setenv(gl[1], gl[2], 1);
+			} else if (gl[1] != NULL) {
+				setenv(gl[1], "", 1);
 			} else {
 				i = 0;
 				while(environ[i] != NULL) {
@@ -225,10 +239,10 @@ int sh( int argc, char **argv, char **envp )
 		} 
 
 		/* Built in history */
-		else if (strcmp(args[0], "history") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
+		else if (strcmp(gl[0], "history") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
 			int n = 10;
-			if(args[1] != NULL && atoi(args[1]) != 0) n = atoi(args[1]);
+			if(gl[1] != NULL && atoi(gl[1]) != 0) n = atoi(gl[1]);
 			struct pathelement *curr = history;
 			while(curr != NULL && n > 0) {
 				printf("%s\n", curr->element);
@@ -238,94 +252,94 @@ int sh( int argc, char **argv, char **envp )
 		} 
 
 		/* Built in alias */
-		else if (strcmp(args[0], "alias") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
-			if(args[1] == NULL) {
+		else if (strcmp(gl[0], "alias") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
+			if(gl[1] == NULL) {
 				struct aliaselement *curr = aliases;
 				while(curr != NULL) {
 					printf("%s     %s\n", curr->name, curr->command);
 					curr = curr->next;
 				}
-			} else if(args[2] == NULL) {
+			} else if(gl[2] == NULL) {
 				struct aliaselement *curr = aliases;
 				while(curr != NULL) {
-					if(strcmp(args[1], curr->name) == 0) {
+					if(strcmp(gl[1], curr->name) == 0) {
 						printf("%s\n", curr->command);
 					}
 					curr = curr->next;
 				}
 			} else {
 				char buf[MAX_CANON];
-				snprintf(buf, MAX_CANON, "%s", args[2]);
+				snprintf(buf, MAX_CANON, "%s", gl[2]);
 				i = 3;
-				while(args[i] != NULL && i < MAXARGS) {
+				while(gl[i] != NULL && i < MAXARGS) {
 					strcat(buf, " ");
-					strcat(buf, args[i]);
+					strcat(buf, gl[i]);
 					i++;
 				}
-				aliases = add_alias(aliases, args[1], buf);
+				aliases = add_alias(aliases, gl[1], buf);
 			}
 		} 
 
 		/* Built in kill */
-		else if (strcmp(args[0], "kill") == 0) {
- 	    	printf("Executing built-in [%s]\n", args[0]);
-			if(args[1] == NULL) {
+		else if (strcmp(gl[0], "kill") == 0) {
+ 	    	printf("Executing built-in [%s]\n", gl[0]);
+			if(gl[1] == NULL) {
 				fprintf(stderr, "kill: Too few arguments.\n");
-			} else if(args[2] == NULL || strchr(args[1], '-') == NULL) {
+			} else if(gl[2] == NULL || strchr(gl[1], '-') == NULL) {
 				i = 1;
-				while(args[i] != NULL) {
-					kill_process(args[i]);
+				while(gl[i] != NULL) {
+					kill_process(gl[i]);
 					i++;
 				}
 			} else {
 				char *signal;
-				signal = strtok(args[1], "-");
+				signal = strtok(gl[1], "-");
 				i = 2;
-				while(args[i] != NULL) {
-					kill_process_signal(args[i], signal);	
+				while(gl[i] != NULL) {
+					kill_process_signal(gl[i], signal);	
 					i++;
 				}
 			}
 		} 
 
 		/* Absolute/Relative paths */
-		else if (strncmp(args[0], "/", 1) == 0 || strncmp(args[0], "./", 2) == 0 || strncmp(args[0], "../", 3) == 0) {
-			if(access(args[0], X_OK) == 0) {
+		else if (strncmp(gl[0], "/", 1) == 0 || strncmp(gl[0], "./", 2) == 0 || strncmp(gl[0], "../", 3) == 0) {
+			if(access(gl[0], X_OK) == 0) {
 				pid_t pid = fork();
 				if(pid == -1) {
 					perror("fork");
 				} else if(pid == 0) {              /* Child */
- 	    			printf("Executing [%s]\n", args[0]);
-					execve(args[0], args, environ);
-					perror(args[0]);
+ 	    			printf("Executing [%s]\n", gl[0]);
+					execve(gl[0], gl, environ);
+					perror(gl[0]);
 					exit(127);
 				} else {                           /* Parent */
 					waitpid(pid, NULL, 0);
 				}
 			} else {
-				fprintf(stderr,"%s: Command not found.\n", args[0]);
+				fprintf(stderr,"%s: Command not found.\n", gl[0]);
 			}
 		} 
 
 		/* MAXARGS handler */
-		else if (strcmp(args[0], "maxargs") == 0) {
+		else if (strcmp(gl[0], "maxargs") == 0) {
 	    	fprintf(stderr, "Error: Too many arguments.\n");
 		} 
 
 		/* Executable */
 		else {
 			char *wh;
-			wh = which(args[0], pathlist);
+			wh = which(gl[0], pathlist);
 			if(wh == NULL) {
-				fprintf(stderr, "%s: Command not found.\n", args[0]);   
+				fprintf(stderr, "%s: Command not found.\n", gl[0]);   
 			} else {
 				pid_t pid = fork();
 				if(pid == -1) {
 					perror("fork");
 				} else if (pid == 0) {
  	    			printf("Executing [%s]\n", wh);
-					execve(wh, args, environ);
+					execve(wh, gl, environ);
 					perror(wh);
 					exit(127);
 				} else {
@@ -334,8 +348,11 @@ int sh( int argc, char **argv, char **envp )
 				free(wh);
 			} 
     	}
+		
+		/* reset glob */
+		globfree(&globbuf);
+		gl = NULL;
 
-		/* Reset args */
 		i = 0;
 		while(args[i] != NULL) {
 	    	free(args[i]);
@@ -344,7 +361,7 @@ int sh( int argc, char **argv, char **envp )
 		}
 
 		/* Print prompt again */
-    	printf(prompt);
+		printf(prompt);
 		printf(" [");
 		printf(pwd);
 		printf("]> ");
@@ -383,6 +400,7 @@ int sh( int argc, char **argv, char **envp )
 		free(aliases);
 		aliases = temp;
 	}
+	globfree(&globbuf);
 
 	return 0;
 } /* sh() */
