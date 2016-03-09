@@ -13,11 +13,14 @@
 #include "sh.h"
 
 int sh( int argc, char **argv, char **envp ) {
+	signal(SIGINT, sig_handle);
+	signal(SIGTERM, sig_handle);
+	signal(SIGTSTP, sig_handle);
 	char *prompt = calloc(PROMPTMAX, sizeof(char));
 	char *commandline = calloc(MAX_CANON, sizeof(char));
 	char *command, *arg, *commandpath, *p, *pwd, *owd;
 	char **args = calloc(MAXARGS, sizeof(char*));
-	int uid, i, status, argsct, a, g, go = 1;
+	int uid, i, status, argsct, a, go = 1;
 	struct passwd *password_entry;
 	char *homedir;
 	struct pathelement *pathlist, *history;
@@ -60,8 +63,6 @@ int sh( int argc, char **argv, char **envp ) {
 		/* Add the command to history */
 		history = add_last(history, commandline);
 
-		i = 0;
-	
 		/* Get the command */	
 		command = strtok(commandline, sp);
 
@@ -81,6 +82,8 @@ int sh( int argc, char **argv, char **envp ) {
 			strcpy(commandline, alias->command);
 			command = strtok(commandline, sp);
 		} 
+
+		i = 0;
 		while (command != NULL) {
 	    	if(i == MAXARGS) {
 				strcpy(args[0], "maxargs");
@@ -101,7 +104,7 @@ int sh( int argc, char **argv, char **envp ) {
 		glob(args[0], GLOB_NOCHECK, NULL, &globbuf);
 		i = 1;	
 		while(args[i] != NULL) {
- 			g = glob(args[i], GLOB_APPEND | GLOB_NOCHECK, NULL, &globbuf);
+ 			glob(args[i], GLOB_APPEND | GLOB_NOCHECK, NULL, &globbuf);
 			i++;
 		}
 		
@@ -185,16 +188,20 @@ int sh( int argc, char **argv, char **envp ) {
 		/* Built in cd */
 		else if (strcmp(gl[0], "cd") == 0) {
  	    	printf("Executing built-in [%s]\n", gl[0]);
-	    	char *tmp;	    
-	    	tmp = cd(gl[1], homedir, owd);
-	    	if(tmp == NULL) {
-				break;
-	    	} else {
-				free(owd);
-				owd = pwd;
-				pwd = tmp;
-	    	}    
-	    	tmp = NULL;
+			if(gl[2] != NULL) {
+				printf("cd: Too many arguments.\n");
+			} else {
+	    		char *tmp;	    
+	    		tmp = cd(gl[1], homedir, owd);
+	    		if(tmp == NULL) {
+					break;
+	    		} else { 
+					free(owd);
+					owd = pwd;
+					pwd = tmp;
+	    		}    
+	    		tmp = NULL;
+			}
 		} 
 
 		/* Built in printenv */
@@ -486,4 +493,8 @@ void kill_process(char *process) {
 		fprintf(stderr, "kill: Arguments should be jobs or process id's.\n");
 	if(i==-1)
 		perror(process);
+}
+
+void sig_handle(int sig) {
+	signal(sig, sig_handle);
 }
