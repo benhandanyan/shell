@@ -67,7 +67,9 @@ int sh( int argc, char **argv, char **envp ) {
 
 			/* Get the command */	
 			command = strtok(commandline, sp);
-			if(command == NULL) break;
+			if(command == NULL) {
+				break;
+			}
 
 			//Search for aliases
 			a = 0;	
@@ -327,6 +329,11 @@ int sh( int argc, char **argv, char **envp ) {
 				}
 			} 
 
+			/* MAXARGS handler */
+			else if (strcmp(gl[0], "maxargs") == 0) {
+	    		fprintf(stderr, "Error: Too many arguments.\n");
+			} 
+
 			/* Absolute/Relative paths */
 			else if (strncmp(gl[0], "/", 1) == 0 || strncmp(gl[0], "./", 2) == 0 || strncmp(gl[0], "../", 3) == 0) {
 				if(access(gl[0], X_OK) == 0) {
@@ -347,11 +354,6 @@ int sh( int argc, char **argv, char **envp ) {
 				} else {
 					fprintf(stderr,"%s: Command not found.\n", gl[0]);
 				}
-			} 
-
-			/* MAXARGS handler */
-			else if (strcmp(gl[0], "maxargs") == 0) {
-	    		fprintf(stderr, "Error: Too many arguments.\n");
 			} 
 
 			/* Executable */
