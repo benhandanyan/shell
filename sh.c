@@ -30,6 +30,7 @@ int sh( int argc, char **argv, char **envp ) {
 	const char sp[2] = " ";
 	extern char **environ;
 	glob_t globbuf;
+	size_t glc;
 	char **gl;
 
 	uid = getuid();
@@ -136,6 +137,8 @@ int sh( int argc, char **argv, char **envp ) {
 		
 			/* gl becomes our arguments, it is the expanded version of args */
 			gl = globbuf.gl_pathv;
+			/* glc is the number of arguments. Use it for checking built in commands */
+			glc = globbuf.gl_pathc;
 	
     		/* check for each built in command and implement */
 			/* Built in list */
@@ -143,11 +146,11 @@ int sh( int argc, char **argv, char **envp ) {
 	    		printf("Executing built-in [%s]\n", gl[0]);
 	    		i = 1;
 				/* No arguments, print the current working directory */
-	    		if(gl[i] == NULL) {
+	    		if(glc < 2) {
 	    			list(pwd);
 	    		} else {
 					/* list each of the arguments passed in */
-	        		while(gl[i] != NULL) {
+	        		while(i < glc) {
 	            		list(gl[i]);
 		    			printf("\n");
 		    			i++;
@@ -165,7 +168,7 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in prompt */
 			else if (strcmp(gl[0], "prompt") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-	    		if(gl[1] == NULL) {
+	    		if(glc < 2) {
 					/* user didn't enter a prompt so request one */
 					printf("input prompt prefix:");
 					fgets(prompt, PROMPTMAX, stdin);
@@ -194,11 +197,11 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in which */
 			else if (strcmp(gl[0], "which") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-				if(gl[1] == NULL) {
+				if(glc < 2) {
 					fprintf(stderr, "which: Too few arguments.\n");
 				} else {
 					i = 1;
-					while(gl[i] != NULL) {
+					while(i < glc) {
 						char *wh;
 						/* call the which function which will check for the command in the path */
 	    				wh = which(gl[i], pathlist);
@@ -216,11 +219,11 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in where */
 			else if (strcmp(gl[0], "where") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-				if(gl[1] == NULL) {
+				if(glc < 2) {
 					fprintf(stderr, "where: Too few arguments.\n");
 				} else {
 					i = 1;
-					while(gl[i] != NULL) {
+					while(i < glc) {
 						where(gl[i], pathlist);
 						i++;
 					}	
@@ -230,7 +233,7 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in cd */
 			else if (strcmp(gl[0], "cd") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-				if(gl[2] != NULL) {
+				if(glc > 2) {
 					printf("cd: Too many arguments.\n");
 				} else {
 	    			char *tmp;	    
@@ -252,9 +255,9 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in printenv */
 			else if (strcmp(gl[0], "printenv") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-	    		if(gl[2] != NULL) {
+	    		if(glc > 2) {
 					fprintf(stderr, "%s: Too many arguments.\n", gl[0]);
-	    		} else if (gl[1] != NULL) { 
+	    		} else if (glc > 1) { 
 					/* print a particular environmental variable */
 					char *tmp;
 					tmp = getenv(gl[1]);
@@ -277,12 +280,12 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in setenv */
 			else if (strcmp(gl[0], "setenv") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-				if(gl[3] != NULL) {
+				if(glc > 3) {
 					fprintf(stderr, "%s: Too many arguments.\n", gl[0]);
-				} else if (gl[2] != NULL) {
+				} else if (glc > 2) {
 					/* set an environmental variable to the given value */
 					setenv(gl[1], gl[2], 1);
-				} else if (gl[1] != NULL) {
+				} else if (glc > 1) {
 					/* set an environmental variable to an empty value */
 					setenv(gl[1], "", 1);
 				} else {
@@ -302,7 +305,7 @@ int sh( int argc, char **argv, char **envp ) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
 				int n = 10;
 				/* set how many history records to print */
-				if(gl[1] != NULL && atoi(gl[1]) != 0) {
+				if(glc > 1 && atoi(gl[1]) != 0) {
 					n = atoi(gl[1]);
 				}
 				struct pathelement *curr = history;
@@ -317,14 +320,14 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in alias */
 			else if (strcmp(gl[0], "alias") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-				if(gl[1] == NULL) {
+				if(glc < 2) {
 					/* list all aliases */
 					struct aliaselement *curr = aliases;
 					while(curr != NULL) {
 						printf("%s     %s\n", curr->name, curr->command);
 						curr = curr->next;
 					}
-				} else if(gl[2] == NULL) {
+				} else if(glc < 3) {
 					/* list a specific alias */
 					struct aliaselement *curr = aliases;
 					while(curr != NULL) {
@@ -350,9 +353,9 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Built in kill */
 			else if (strcmp(gl[0], "kill") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
-				if(gl[1] == NULL) {
+				if(glc < 2) {
 					fprintf(stderr, "kill: Too few arguments.\n");
-				} else if(gl[2] == NULL || strchr(gl[1], '-') == NULL) {
+				} else if(glc < 3 || strchr(gl[1], '-') == NULL) {
 					/* default kill with SIGINT */
 					i = 1;
 					while(gl[i] != NULL) {
