@@ -13,13 +13,14 @@
 #include "sh.h"
 
 int sh( int argc, char **argv, char **envp ) {
-	//signal(SIGINT, sig_handle);
 	signal(SIGINT, sig_handle);
 	signal(SIGTERM, SIG_IGN);
 	signal(SIGTSTP, SIG_IGN);
 	char *prompt = calloc(PROMPTMAX, sizeof(char));
 	char *commandline = calloc(MAX_CANON, sizeof(char));
-	char *command, *arg, *commandpath, *p, *pwd, *owd;
+	char *command, *arg, *aliashelp, *commandpath, *p, *pwd, *owd;
+	/* Use these two save chars for strtok_r on command and alias commands*/
+	char *command_save, *alias_save;
 	char **args = calloc(MAXARGS, sizeof(char*));
 	int uid, i, status, argsct, a, go = 1;
 	struct passwd *password_entry;
@@ -46,27 +47,32 @@ int sh( int argc, char **argv, char **envp ) {
 
 	/* Put PATH into a linked list */
 	pathlist = get_path();
+
+	/* By default, we have no history or aliases */
 	history = NULL;
 	aliases = NULL;
 
 	while ( go ) {
-    	printf(prompt); /* print your prompt */
+		/* print prompt */
+		printf("\n");
+    	printf(prompt);
     	printf(" [");
     	printf(pwd);
     	printf("]> ");
 
     	i = 0;
 
-    	while (fgets(commandline, MAX_CANON, stdin) != NULL) { /* get command line and process */
+		/* get command line and process */
+    	while (fgets(commandline, MAX_CANON, stdin) != NULL) {
 			if (commandline[strlen(commandline) - 1] == '\n') {
-				commandline[strlen(commandline) - 1] = 0; /* replace newline with null */
+				commandline[strlen(commandline) - 1] = 0;
 			}
 
 			/* Add the command to history */
 			history = add_last(history, commandline);
 
 			/* Get the command */	
-			command = strtok(commandline, sp);
+			command = strtok_r(commandline, sp, &command_save);
 			if(command == NULL) {
 				break;
 			}
@@ -83,12 +89,27 @@ int sh( int argc, char **argv, char **envp ) {
 			}
 
 			/* If we have an alias */
+			i = 0;
 			if(a) {
-				strcpy(commandline, alias->command);
-				command = strtok(commandline, sp);
+				/* parse alias command */
+				arg = calloc(strlen(alias->command) + 1, sizeof(char));
+				strcpy(arg, alias->command);
+				aliashelp = strtok_r(arg, sp, &alias_save);
+				while(aliashelp != NULL) {
+					if(i == MAXARGS) {
+						strcpy(args[0], "maxargs");
+						break;
+					}
+					args[i] = calloc(strlen(aliashelp) + 1, sizeof(char));
+					strcpy(args[i], aliashelp);
+					aliashelp = strtok_r(NULL, sp, &alias_save);
+					i++;
+				}
+				command = strtok_r(NULL, sp, &command_save);
+				free(arg);
 			} 
 
-			i = 0;
+			/* parse command line or remainder of command line if we have an alias */
 			while (command != NULL) {
 	    		if(i == MAXARGS) {
 					strcpy(args[0], "maxargs");
@@ -96,11 +117,11 @@ int sh( int argc, char **argv, char **envp ) {
 				}
 	    		args[i] =  calloc(strlen(command) + 1, sizeof(char));
 	   			strcpy(args[i], command);
-	    		command = strtok(NULL, sp);
+	    		command = strtok_r(NULL, sp, &command_save);
 	    		i++;
 			}
-	
-			/* make sure the user passed in something */
+			
+			/* SANITY CHECK: make sure the user passed in something */
 			if(args[0] == NULL) {
 				break;
 			}
@@ -113,17 +134,19 @@ int sh( int argc, char **argv, char **envp ) {
 				i++;
 			}
 		
+			/* gl becomes our arguments, it is the expanded version of args */
 			gl = globbuf.gl_pathv;
 	
     		/* check for each built in command and implement */
-			
 			/* Built in list */
 			if(strcmp(gl[0], "list") == 0) {
 	    		printf("Executing built-in [%s]\n", gl[0]);
 	    		i = 1;
+				/* No arguments, print the current working directory */
 	    		if(gl[i] == NULL) {
 	    			list(pwd);
 	    		} else {
+					/* list each of the arguments passed in */
 	        		while(gl[i] != NULL) {
 	            		list(gl[i]);
 		    			printf("\n");
@@ -143,12 +166,14 @@ int sh( int argc, char **argv, char **envp ) {
 			else if (strcmp(gl[0], "prompt") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
 	    		if(gl[1] == NULL) {
+					/* user didn't enter a prompt so request one */
 					printf("input prompt prefix:");
 					fgets(prompt, PROMPTMAX, stdin);
 					if(prompt[strlen(prompt) - 1] == '\n') {
 		    			prompt[strlen(prompt) - 1] = 0;
 					}
 	    		} else {
+					/* set the prompt to be the first argument */
 					strncpy(prompt, gl[1], PROMPTMAX);
 	    		}
 			} 
@@ -175,6 +200,7 @@ int sh( int argc, char **argv, char **envp ) {
 					i = 1;
 					while(gl[i] != NULL) {
 						char *wh;
+						/* call the which function which will check for the command in the path */
 	    				wh = which(gl[i], pathlist);
 						if(wh == NULL) { 
 							fprintf(stderr, "%s: Command not found.\n", gl[i]);
@@ -208,12 +234,15 @@ int sh( int argc, char **argv, char **envp ) {
 					printf("cd: Too many arguments.\n");
 				} else {
 	    			char *tmp;	    
+					/* tmp will be the new directory or NULL on failure */
 	    			tmp = cd(gl[1], homedir, owd);
 	    			if(tmp == NULL) {
 						break;
 	    			} else { 
 						free(owd);
+						/* set owd to be the old (previous) working directory */
 						owd = pwd;
+						/* set the new working directory */
 						pwd = tmp;
 	    			}    
 	    			tmp = NULL;
@@ -226,6 +255,7 @@ int sh( int argc, char **argv, char **envp ) {
 	    		if(gl[2] != NULL) {
 					fprintf(stderr, "%s: Too many arguments.\n", gl[0]);
 	    		} else if (gl[1] != NULL) { 
+					/* print a particular environmental variable */
 					char *tmp;
 					tmp = getenv(gl[1]);
 					if(tmp == NULL) {
@@ -235,6 +265,7 @@ int sh( int argc, char **argv, char **envp ) {
 					}
 					tmp = NULL;
 	    		} else {
+					/* print all environmental variables */
 	        		i = 0;
 	        		while(environ[i] != NULL) {
 		    			printf("%s\n", environ[i]);
@@ -249,16 +280,20 @@ int sh( int argc, char **argv, char **envp ) {
 				if(gl[3] != NULL) {
 					fprintf(stderr, "%s: Too many arguments.\n", gl[0]);
 				} else if (gl[2] != NULL) {
+					/* set an environmental variable to the given value */
 					setenv(gl[1], gl[2], 1);
 				} else if (gl[1] != NULL) {
+					/* set an environmental variable to an empty value */
 					setenv(gl[1], "", 1);
 				} else {
+					/* print all environmental variables */
 					i = 0;
 					while(environ[i] != NULL) {
 						printf("%s\n", environ[i]);
 						i++;
 					}
 				}
+				/* in case we update the home directory */
 				homedir = getenv("HOME");
 			} 
 
@@ -266,10 +301,12 @@ int sh( int argc, char **argv, char **envp ) {
 			else if (strcmp(gl[0], "history") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
 				int n = 10;
+				/* set how many history records to print */
 				if(gl[1] != NULL && atoi(gl[1]) != 0) {
 					n = atoi(gl[1]);
 				}
 				struct pathelement *curr = history;
+				/* loop and print past commands */
 				while(curr != NULL && n > 0) {
 					printf("%s\n", curr->element);
 					curr = curr->next;
@@ -281,12 +318,14 @@ int sh( int argc, char **argv, char **envp ) {
 			else if (strcmp(gl[0], "alias") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
 				if(gl[1] == NULL) {
+					/* list all aliases */
 					struct aliaselement *curr = aliases;
 					while(curr != NULL) {
 						printf("%s     %s\n", curr->name, curr->command);
 						curr = curr->next;
 					}
 				} else if(gl[2] == NULL) {
+					/* list a specific alias */
 					struct aliaselement *curr = aliases;
 					while(curr != NULL) {
 						if(strcmp(gl[1], curr->name) == 0) {
@@ -295,6 +334,7 @@ int sh( int argc, char **argv, char **envp ) {
 						curr = curr->next;
 					}
 				} else {
+					/* add an alias */
 					char buf[MAX_CANON];
 					snprintf(buf, MAX_CANON, "%s", gl[2]);
 					i = 3;
@@ -313,12 +353,14 @@ int sh( int argc, char **argv, char **envp ) {
 				if(gl[1] == NULL) {
 					fprintf(stderr, "kill: Too few arguments.\n");
 				} else if(gl[2] == NULL || strchr(gl[1], '-') == NULL) {
+					/* default kill with SIGINT */
 					i = 1;
 					while(gl[i] != NULL) {
 						kill_process(gl[i]);
 						i++;
 					}
 				} else {
+					/* kill with the given signal number */
 					char *signal;
 					signal = strtok(gl[1], "-");
 					i = 2;
@@ -340,18 +382,23 @@ int sh( int argc, char **argv, char **envp ) {
 					pid_t pid = fork();
 					if(pid == -1) {
 						perror("fork");
-					} else if(pid == 0) {              /* Child */
+					} else if(pid == 0) {
+						/* print what child is executing and execve it */
  	    				printf("Executing [%s]\n", gl[0]);
 						execve(gl[0], gl, environ);
+						/* on exec error */
 						perror(gl[0]);
 						exit(127);
-					} else {                           /* Parent */
+					} else {
+						/* wait for chil process */
 						waitpid(pid, &status, 0);
+						/* if child exits with non-zero status print it */
 						if(WEXITSTATUS(status) != 0) {
 							printf("Exit: %d\n", WEXITSTATUS(status));
 						}
 					}
 				} else {
+					/* path doens't exist */
 					fprintf(stderr,"%s: Command not found.\n", gl[0]);
 				}
 			} 
@@ -359,6 +406,7 @@ int sh( int argc, char **argv, char **envp ) {
 			/* Executable */
 			else {
 				char *wh;
+				/* figure out which executable to execute */
 				wh = which(gl[0], pathlist);
 				if(wh == NULL) {
 					fprintf(stderr, "%s: Command not found.\n", gl[0]);   
@@ -367,12 +415,16 @@ int sh( int argc, char **argv, char **envp ) {
 					if(pid == -1) {
 						perror("fork");
 					} else if (pid == 0) {
+						/* what we are executing */
  	    				printf("Executing [%s]\n", wh);
 						execve(wh, gl, environ);
+						/* on execve error */
 						perror(wh);
 						exit(127);
 					} else {
+						/* wait for child */
 						waitpid(pid, &status, 0);
+						/* if child exits with nonzero value print it */
 						if(WEXITSTATUS(status) != 0){
 							printf("Exit: %d\n", WEXITSTATUS(status));
 						}
@@ -383,8 +435,8 @@ int sh( int argc, char **argv, char **envp ) {
 		
 			/* reset glob */
 			globfree(&globbuf);
-			gl = NULL;
 
+			/* reset args */
 			i = 0;
 			while(args[i] != NULL) {
 	    		free(args[i]);
@@ -445,6 +497,7 @@ char *which(char *command, struct pathelement *pathlist ) {
 	buf = malloc(MAX_CANON * sizeof(char));
 	while(current != NULL) {
 		snprintf(buf, MAX_CANON, "%s/%s", current->element, command);
+		/* we've found the command, so return it and exit */
 		if(access(buf, F_OK) == 0) {
     		return buf;
 			break;
@@ -462,8 +515,10 @@ void where(char *command, struct pathelement *pathlist ) {
 	char buf[MAX_CANON];
 	while(current != NULL) {
 		snprintf(buf, MAX_CANON, "%s/%s", current->element, command);
-		if(access(buf, F_OK) == 0) 
+		/* we've found the command, so print it and continue */
+		if(access(buf, F_OK) == 0) { 
 			printf("%s\n", buf);
+		}
 		current = current->next;
 	}
 } /* where() */
@@ -474,12 +529,16 @@ void list ( char *dir ) {
   
 	DIR* dirstream;
 	struct dirent* files;
+	/*try to open the given direcotry */
 	dirstream = opendir(dir);
 
+	/* failed to open */
 	if(dirstream == NULL) {
 		perror(dir);
 	} else {
+		/* print what directory we're listing */
     	printf("%s:\n", dir);
+		/* print the files in the directory */
 		while((files = readdir(dirstream)) != NULL){
         	printf("%s\n", files->d_name);
     	}
@@ -488,12 +547,19 @@ void list ( char *dir ) {
 } /* list() */
 
 char *cd( char *dir, char *homedir, char *prevdir ) {
-    if(dir == NULL) dir = homedir;
-    if(strcmp(dir, "-") == 0) dir = prevdir;
+    if(dir == NULL) {
+		/* with no dir, we want to change to the homedir */
+		dir = homedir;
+	} else if(strcmp(dir, "-") == 0) {
+		/* change to the previous directory capability */
+		dir = prevdir;
+	}
     if(chdir(dir) == -1) {
+		/* on chdir error */
 		perror(dir);
 		return NULL;
     } else {
+		/* return the new directory after we change directories */
 		return getcwd(NULL, PATH_MAX+1);
     }
 }
@@ -501,10 +567,14 @@ char *cd( char *dir, char *homedir, char *prevdir ) {
 /* try to kill the given process with the given signal */
 void kill_process_signal(char* process, char *signal) {
 	int i = 0;
-	if(atoi(process) && atoi(signal))
+	if(atoi(process) && atoi(signal)) {
+		/* if we can convert process and signal to numbers, try to kill the process with the signal */
     	i = kill(atoi(process), atoi(signal));
-    else
+	} else {
+		/* something was wrong with process or signal */
     	fprintf(stderr, "kill: Arguments should be jobs or process id's.\n");
+	}
+	/* kill didn't work */
     if(i == -1)
     	perror(process);
 }
@@ -512,14 +582,19 @@ void kill_process_signal(char* process, char *signal) {
 /* try to terminate the given process */
 void kill_process(char *process) {
 	int i = 0;
-	if(atoi(process))
+	if(atoi(process)) {
+		/* if we can convert process to number, try to kill the process with SIGTERM */ 
 		i = kill(atoi(process),SIGTERM);
-	else
+	} else {
+		/* something was wrong with process */
 		fprintf(stderr, "kill: Arguments should be jobs or process id's.\n");
+	}
+	/* kill didn't work */
 	if(i==-1)
 		perror(process);
 }
 
+/* handle CTRL-C */
 void sig_handle(int sig) {
 	signal(sig, sig_handle);
 }
