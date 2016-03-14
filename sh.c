@@ -78,7 +78,7 @@ int sh( int argc, char **argv, char **envp ) {
 				break;
 			}
 
-			//Search for aliases
+			/* Search for aliases */
 			a = 0;	
 			struct aliaselement *alias = aliases;
 			while(alias != NULL) {
