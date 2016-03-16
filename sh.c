@@ -10,6 +10,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <glob.h>
+#include <pthread.h>
+#include <sys/loadavg.h>
 #include "sh.h"
 
 int sh( int argc, char **argv, char **envp ) {
@@ -32,6 +34,10 @@ int sh( int argc, char **argv, char **envp ) {
 	glob_t globbuf;
 	size_t glc;
 	char **gl;
+	float load = 0.0;
+	int load_thread = 1;
+	pthread_t pt_warnload;
+	struct userelement *users;
 
 	uid = getuid();
 	password_entry = getpwuid(uid);               /* get passwd info */
@@ -49,9 +55,10 @@ int sh( int argc, char **argv, char **envp ) {
 	/* Put PATH into a linked list */
 	pathlist = get_path();
 
-	/* By default, we have no history or aliases */
+	/* By default, we have no history or aliases or users */
 	history = NULL;
 	aliases = NULL;
+	users = NULL;
 
 	while ( go ) {
 		/* print prompt */
@@ -141,8 +148,46 @@ int sh( int argc, char **argv, char **envp ) {
 			glc = globbuf.gl_pathc;
 	
     		/* check for each built in command and implement */
+
+			/* Built in warnload */
+			if(strcmp(gl[0], "warnload") == 0) {
+	    		printf("Executing built-in [%s]\n", gl[0]);
+				char *end;
+				if(glc != 2) {
+					printf("Usage: warnload LOAD\n");
+				} else if (strcmp(gl[1], "0.0") != 0 && (strtof(gl[1], &end) == 0 || strtof(gl[1], &end) < 0)) {
+					printf("LOAD must be a positive floating point number\n");
+				} else if (strcmp(gl[1], "0.0") == 0) {
+					load = 0.0;
+					load_thread = 1;
+				} else {
+					load = strtof(gl[1], &end);
+					if(load_thread != 0) {
+						load_thread = 0;
+						pthread_create(&pt_warnload, NULL, warnload, &load);
+					}
+				}
+			}
+
+			/* Built in watchuser */
+			else if(strcmp(gl[0], "watchuser") == 0) {
+	    		printf("Executing built-in [%s]\n", gl[0]);
+				if(glc < 2) {
+					fprintf(stderr, "watchuser: Too few arguements.\n");
+				} else if(glc > 3) {
+					fprintf(stderr, "watchuser: Too many arguments.\n");
+				} else if (glc == 3 && strcmp(gl[2], "off") != 0) {
+					printf("Usage: watchuser USERNAME [off]\n");
+				} else if (glc == 3 && strcmp(gl[2], "off") == 0 ){
+					users = remove_user(users, gl[1]);
+				} else {
+					users = add_user(users, gl[1]);
+				}
+				print_users(users);
+			}
+
 			/* Built in list */
-			if(strcmp(gl[0], "list") == 0) {
+			else if(strcmp(gl[0], "list") == 0) {
 	    		printf("Executing built-in [%s]\n", gl[0]);
 	    		i = 1;
 				/* No arguments, print the current working directory */
@@ -595,6 +640,35 @@ void kill_process(char *process) {
 	/* kill didn't work */
 	if(i==-1)
 		perror(process);
+}
+
+/* warn the user if the load is above the set warning value */
+void *warnload(void *args) {
+	float l;
+	while(1) {
+
+		/* get the warning value */
+		l = *(float *)args;
+		
+		/* should we exit? */
+		if(l == 0.0) {
+			printf("exiting");
+			pthread_exit(NULL);
+		}
+		
+		/* get the averge loads */
+		double loads[3];
+		if(getloadavg(loads, 3) == -1) {
+			perror("warnload");
+		
+		/* check if we should warn the user and do it */
+		} else {
+			if(loads[LOADAVG_1MIN] > l) {
+				printf("\nWarning load level is %.2lf\n", loads[LOADAVG_1MIN]);
+			}
+		}
+		sleep(30);
+	}
 }
 
 /* handle CTRL-C */
