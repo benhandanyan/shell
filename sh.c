@@ -10,8 +10,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <glob.h>
-#include <pthread.h>
 #include <sys/loadavg.h>
+#include <utmpx.h>
 #include "sh.h"
 
 int sh( int argc, char **argv, char **envp ) {
@@ -34,10 +34,16 @@ int sh( int argc, char **argv, char **envp ) {
 	glob_t globbuf;
 	size_t glc;
 	char **gl;
+	pthread_t pt_warnload, pt_watchuser;
+	
+	/* for use with warnload */
 	float load = 0.0;
 	int load_thread = 1;
-	pthread_t pt_warnload;
-	struct userelement *users;
+	
+	/* for use with watchuser */
+	static pthread_mutex_t user_lock = PTHREAD_MUTEX_INITIALIZER;
+	int user_thread = 1;
+	struct userarg *userargs;
 
 	uid = getuid();
 	password_entry = getpwuid(uid);               /* get passwd info */
@@ -58,7 +64,7 @@ int sh( int argc, char **argv, char **envp ) {
 	/* By default, we have no history or aliases or users */
 	history = NULL;
 	aliases = NULL;
-	users = NULL;
+	userargs = NULL;
 
 	while ( go ) {
 		/* print prompt */
@@ -179,11 +185,30 @@ int sh( int argc, char **argv, char **envp ) {
 				} else if (glc == 3 && strcmp(gl[2], "off") != 0) {
 					printf("Usage: watchuser USERNAME [off]\n");
 				} else if (glc == 3 && strcmp(gl[2], "off") == 0 ){
-					users = remove_user(users, gl[1]);
+
+					/* remove the given username from watched users list */
+					if(user_thread == 0) {
+						pthread_mutex_lock(&user_lock);
+						userargs->users = remove_user(userargs->users, gl[1]);
+						pthread_mutex_unlock(&user_lock);
+					} else {
+						printf("No watched users have been added yet\n");
+					}
 				} else {
-					users = add_user(users, gl[1]);
+					
+					/* Add the user to the list. Create the watchuser thread if it isn't already created */
+					if(user_thread == 1) {
+						user_thread = 0;
+						userargs = calloc(1, sizeof(struct userarg));	
+						userargs->lock = user_lock;
+						userargs->users = add_user(NULL, gl[1]);
+						pthread_create(&pt_watchuser, NULL, watchuser, userargs);
+					} else {
+						pthread_mutex_lock(&user_lock);
+						userargs->users = add_user(userargs->users, gl[1]);
+						pthread_mutex_unlock(&user_lock);
+					}
 				}
-				print_users(users);
 			}
 
 			/* Built in list */
@@ -532,6 +557,17 @@ int sh( int argc, char **argv, char **envp ) {
 		free(aliases);
 		aliases = temp;
 	}
+	struct userelement *tem;
+	while(userargs != NULL && userargs->users != NULL) {
+		tem = userargs->users->next;
+		free(userargs->users->username);
+		free(userargs->users);
+		userargs->users = tem;
+	}
+	if(userargs != NULL) {
+		pthread_mutex_destroy(&userargs->lock);
+		free(userargs);
+	}
 	globfree(&globbuf);
 
 	return 0;
@@ -668,6 +704,44 @@ void *warnload(void *args) {
 			}
 		}
 		sleep(30);
+	}
+}
+
+/* watch for users signing on */
+void *watchuser(void *args) {
+	struct userarg *userargs;
+	struct userelement *users;
+	pthread_mutex_t lock;
+	struct utmpx *up;
+	int contains;
+	time_t last_check;
+
+	/* get the current time */
+	time(&last_check);
+	while(1) {
+		userargs = (struct userarg *)args;
+		users = (struct userelement *)userargs->users;
+		lock = (pthread_mutex_t)userargs->lock;
+		setutxent();
+		while(up = getutxent()) {
+
+			/* if we have a user process */
+			if(up->ut_type == USER_PROCESS) {
+
+				/* check if the user is a watched user */
+				pthread_mutex_lock(&lock);
+				contains = contains_user(userargs->users, up->ut_user);
+				pthread_mutex_unlock(&lock);
+
+				/* if the user is watched and has logged on since we last checked, print */
+				if(contains == 1 && (int)up->ut_tv.tv_sec > (int)last_check) {
+					printf("\n%s has logged on %s from %s\n", up->ut_user, up->ut_line, up->ut_host);
+				}
+			}
+		}
+		/* update when we last checked */
+		time(&last_check);
+		sleep(10);
 	}
 }
 

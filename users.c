@@ -1,10 +1,13 @@
 #include "users.h"
 
-struct userelement *add_user(struct userelement *head, char *username)
-{
+/* Add a user to the linked list of watched users */
+struct userelement *add_user(struct userelement *head, char *username) {
+	/* if we already have the user, don't add a duplicate */
 	if(contains_user(head, username)) {
 		return head;
-	} else if(head == NULL) {
+	} 
+	/* if this is the first user */
+	else if(head == NULL) {
 		head = calloc(1, sizeof(struct userelement));
 		head->username = malloc((strlen(username) + 1) * sizeof(char));
 		strcpy(head->username, username);
@@ -20,11 +23,15 @@ struct userelement *add_user(struct userelement *head, char *username)
 	return head;
 }
 
+/* Remove a user from the linked list of watched users */
 struct userelement *remove_user(struct userelement *head, char *username) {
 	struct userelement *tmp;
+	/* if we don't have that user in the list, return */
 	if(!contains_user(head, username)) {
-		return 0;
-	} else if (strcmp(head->username, username) == 0) {
+		return head;
+	} 
+	/* if we are removing the head */
+	else if (strcmp(head->username, username) == 0) {
 		tmp = head;
 		head = head->next;
 		free(tmp->username);
@@ -48,6 +55,7 @@ struct userelement *remove_user(struct userelement *head, char *username) {
 	return head;
 }
 
+/* determine if the username is in the list of watched users */
 int contains_user(struct userelement *head, char *username) {
 	if(head == NULL) {
 		return 0;
@@ -62,14 +70,4 @@ int contains_user(struct userelement *head, char *username) {
 		}
 	}
 	return 0;
-}
-
-void print_users(struct userelement *head) {
-	struct userelement *curr;
-	curr = head;
-	while(curr != NULL) {
-		printf("%s -> ", curr->username);
-		curr = curr->next;
-	}
-	printf("\n");
 }
