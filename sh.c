@@ -25,6 +25,7 @@ int sh( int argc, char **argv, char **envp ) {
 	char *command_save, *alias_save;
 	char **args = calloc(MAXARGS, sizeof(char*));
 	int uid, i, status, argsct, a, go = 1;
+	int background, bg_pid = 0;
 	struct passwd *password_entry;
 	char *homedir;
 	struct pathelement *pathlist, *history;
@@ -67,6 +68,13 @@ int sh( int argc, char **argv, char **envp ) {
 	userargs = NULL;
 
 	while ( go ) {
+
+		/* wait on background processes */
+		bg_pid = waitpid(-1, &status, WNOHANG);
+		if(bg_pid > 0) {
+        	printf("Background child [%d] exited with status: %d\n", bg_pid, WEXITSTATUS(status));
+		}
+
 		/* print prompt */
 		printf("\n");
     	printf(prompt);
@@ -78,6 +86,13 @@ int sh( int argc, char **argv, char **envp ) {
 
 		/* get command line and process */
     	while (fgets(commandline, MAX_CANON, stdin) != NULL) {
+
+			/* wait on background processes */
+            bg_pid = waitpid(-1, &status, WNOHANG);
+            if(bg_pid > 0) {
+                printf("Background child [%d] exited with status: %d\n", bg_pid, WEXITSTATUS(status));
+            }
+
 			if (commandline[strlen(commandline) - 1] == '\n') {
 				commandline[strlen(commandline) - 1] = 0;
 			}
@@ -152,7 +167,14 @@ int sh( int argc, char **argv, char **envp ) {
 			gl = globbuf.gl_pathv;
 			/* glc is the number of arguments. Use it for checking built in commands */
 			glc = globbuf.gl_pathc;
-	
+
+			/* Check for background & at end of last argument */
+			char* last_arg = gl[glc - 1];
+			char last_char = last_arg[(strlen(last_arg) - 1)];
+			if(strcmp(&last_char, "&") == 0) {
+				last_arg[(strlen(last_arg) - 1)] = '\0';
+				background = 1;
+			}
     		/* check for each built in command and implement */
 
 			/* Built in warnload */
@@ -463,11 +485,14 @@ int sh( int argc, char **argv, char **envp ) {
 						perror(gl[0]);
 						exit(127);
 					} else {
-						/* wait for chil process */
-						waitpid(pid, &status, 0);
-						/* if child exits with non-zero status print it */
-						if(WEXITSTATUS(status) != 0) {
-							printf("Exit: %d\n", WEXITSTATUS(status));
+						/* if not a background process, wait */
+						if(!background) {
+							/* wait for chil process */
+							waitpid(pid, &status, 0);
+							/* if child exits with non-zero status print it */
+							if(WEXITSTATUS(status) != 0) {
+								printf("Exit: %d\n", WEXITSTATUS(status));
+							}
 						}
 					}
 				} else {
@@ -495,17 +520,23 @@ int sh( int argc, char **argv, char **envp ) {
 						perror(wh);
 						exit(127);
 					} else {
-						/* wait for child */
-						waitpid(pid, &status, 0);
-						/* if child exits with nonzero value print it */
-						if(WEXITSTATUS(status) != 0){
-							printf("Exit: %d\n", WEXITSTATUS(status));
+						/* if not a background process, wait */
+						if(!background) {
+							/* wait for child */
+							waitpid(pid, &status, 0);
+							/* if child exits with nonzero value print it */
+							if(WEXITSTATUS(status) != 0){
+								printf("Exit: %d\n", WEXITSTATUS(status));
+							}
 						}
 					}
 					free(wh);
 				} 
     		}
 		
+			/* reset background */
+			background = 0;
+
 			/* reset glob */
 			globfree(&globbuf);
 
@@ -516,6 +547,7 @@ int sh( int argc, char **argv, char **envp ) {
 	    		args[i] = NULL;
 	    		i++;
 			}
+			sleep(1);
 
 			/* Print prompt again */
 			printf(prompt);
