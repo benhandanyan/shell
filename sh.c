@@ -10,6 +10,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <glob.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/loadavg.h>
 #include <utmpx.h>
 #include "sh.h"
@@ -45,6 +47,10 @@ int sh( int argc, char **argv, char **envp ) {
 	static pthread_mutex_t user_lock = PTHREAD_MUTEX_INITIALIZER;
 	int user_thread = 1;
 	struct userarg *userargs;
+
+	/* for use with file redirection */
+	int fid;
+	int redirect = 0;
 
 	uid = getuid();
 	password_entry = getpwuid(uid);               /* get passwd info */
@@ -175,6 +181,19 @@ int sh( int argc, char **argv, char **envp ) {
 				last_arg[(strlen(last_arg) - 1)] = '\0';
 				background = 1;
 			}
+
+			/* Check for file redirection */
+			if(glc > 2 && strcmp(gl[glc-2], ">") == 0) {
+				fid = open(gl[glc-1], O_WRONLY|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
+				close(1);
+				dup(fid);
+				close(fid);
+				redirect = 1;
+				gl[glc-2] = '\0';
+				gl[glc-1] = '\0';
+				glc = glc - 2;
+			}
+
     		/* check for each built in command and implement */
 
 			/* Built in warnload */
@@ -548,6 +567,15 @@ int sh( int argc, char **argv, char **envp ) {
 	    		i++;
 			}
 			sleep(1);
+
+			/* if we redirected, set stdout back to screen */
+			if(redirect == 1) {
+				redirect = 0;
+				fid = open("/dev/tty", O_WRONLY);
+				close(1);
+				dup(fid);
+				close(fid);
+			}
 
 			/* Print prompt again */
 			printf(prompt);
