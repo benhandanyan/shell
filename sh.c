@@ -50,7 +50,8 @@ int sh( int argc, char **argv, char **envp ) {
 
 	/* for use with file redirection */
 	int fid;
-	int redirect = 0;
+	int file_redirect, error_redirect, input_redirect = 0;
+	int noclobber = 0;
 
 	uid = getuid();
 	password_entry = getpwuid(uid);               /* get passwd info */
@@ -182,13 +183,103 @@ int sh( int argc, char **argv, char **envp ) {
 				background = 1;
 			}
 
-			/* Check for file redirection */
-			if(glc > 2 && strcmp(gl[glc-2], ">") == 0) {
-				fid = open(gl[glc-1], O_WRONLY|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
+			/* Check for file output redirection (without appending) */
+			if(glc > 2 && (strcmp(gl[glc-2], ">") == 0 || strcmp(gl[glc-2], ">&") == 0)) {
+
+				/* Don't overwrite an existing file if noclobber is set */
+				if(noclobber) {
+					if(access(gl[glc-1], F_OK) == 0) {
+						fprintf(stderr, "%s: File exists.\n", gl[glc-1]);
+						free_args(args);
+						break;
+					}
+				}
+
+				/* Redirect the output to given file */
+				fid = open(gl[glc-1], O_WRONLY|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR|S_IRGRP);
+				if(fid == -1) {
+					perror(gl[glc-1]);
+					free_args(args);
+					break;
+				}
 				close(1);
 				dup(fid);
+				
+				/* Redirect error output to the given file */
+				if(strcmp(gl[glc-2], ">&") == 0) {
+					close(2);
+					dup(fid);
+					error_redirect = 1;
+				}
 				close(fid);
-				redirect = 1;
+				file_redirect = 1;
+
+				/* Hide redirection character and filename */
+				gl[glc-2] = '\0';
+				gl[glc-1] = '\0';
+				glc = glc - 2;
+			}
+
+			/* Check for file output redirection (with appending) */
+			if(glc > 2 && (strcmp(gl[glc-2], ">>") == 0 || strcmp(gl[glc-2], ">>&") == 0)) {
+				
+				/* Don't append to a file that doesn't exist */
+				if(noclobber) {
+					if(access(gl[glc-1], F_OK) != 0) {
+						fprintf(stderr, "%s: No such file or directory.\n", gl[glc-1]);
+						free_args(args);
+						break;
+					}
+				}
+
+				/* Redirect the output to given file */
+				fid = open(gl[glc-1], O_WRONLY|O_CREAT|O_APPEND, S_IRUSR|S_IWUSR|S_IRGRP);
+				if(fid == -1) {
+					perror(gl[glc-1]);
+					free_args(args);
+					break;
+				}
+				close(1);
+				dup(fid);
+		
+				/* Redirect error output to the given file */
+				if(strcmp(gl[glc-2], ">>&") == 0) {
+					close(2);
+					dup(fid);
+					error_redirect = 1;
+				}
+				close(fid);
+				file_redirect = 1;
+			
+				/* Hide redirection character and filename */
+				gl[glc-2] = '\0';
+				gl[glc-1] = '\0';
+				glc = glc - 2;
+			}
+
+			/* Check for file input redirection */
+			if(glc > 2 && strcmp(gl[glc-2], "<") == 0) {
+
+				/* Can't take input from a nonexisistent file */
+				if(access(gl[glc-1], F_OK) != 0) {
+					fprintf(stderr, "%s: No such file or directory.\n", gl[glc-1]);
+					free_args(args);
+					break;
+				}
+
+				/* Open the file to read from */
+				fid = open(gl[glc-1], O_RDONLY);
+				if(fid == -1) {
+					perror(gl[glc-1]);
+					free_args(args);
+					break;
+				}
+				close(0);
+				dup(fid);
+				close(fid);
+				input_redirect = 1;
+
+				/* Hide redirection character and filename */
 				gl[glc-2] = '\0';
 				gl[glc-1] = '\0';
 				glc = glc - 2;
@@ -298,7 +389,16 @@ int sh( int argc, char **argv, char **envp ) {
 	    		printf(pwd);
 	    		printf("\n");
 			} 
-
+			
+			/* Built in noclobber */
+			else if (strcmp(gl[0], "noclobber") == 0){
+				if(noclobber == 0) {
+					noclobber = 1;
+				} else {
+					noclobber = 0;
+				}
+				printf("noclobber is set to %d\n", noclobber);
+			}
 			/* Built in pid */
 			else if (strcmp(gl[0], "pid") == 0) {
  	    		printf("Executing built-in [%s]\n", gl[0]);
@@ -560,22 +660,32 @@ int sh( int argc, char **argv, char **envp ) {
 			globfree(&globbuf);
 
 			/* reset args */
-			i = 0;
-			while(args[i] != NULL) {
-	    		free(args[i]);
-	    		args[i] = NULL;
-	    		i++;
-			}
-			sleep(1);
+			free_args(args);
 
-			/* if we redirected, set stdout back to screen */
-			if(redirect == 1) {
-				redirect = 0;
+			/* if we redirected file output, reset it to the screen */
+			if(file_redirect == 1) {
+				file_redirect = 0;
 				fid = open("/dev/tty", O_WRONLY);
 				close(1);
 				dup(fid);
+				if(error_redirect == 1) {
+					error_redirect = 0;
+					close(2);
+					dup(fid);
+				}
 				close(fid);
 			}
+
+			/* if we redirected file input, reset it to the keyboard */
+			if(input_redirect == 1) {
+				input_redirect = 0;
+				fid = open("/dev/tty", O_RDONLY);
+				close(0);
+				dup(fid);
+				close(fid);
+			}
+
+			sleep(1);
 
 			/* Print prompt again */
 			printf(prompt);
@@ -588,12 +698,7 @@ int sh( int argc, char **argv, char **envp ) {
 	/* free allocated memory */
 	free(prompt);
 	free(commandline);
-	i = 0;
-	while(args[i] != NULL) {
-    	free(args[i]);
-    	args[i] = NULL;
-    	i++;
-	}
+	free_args(args);
 	free(args);
 	free(owd);
 	free(pwd);
@@ -802,6 +907,15 @@ void *watchuser(void *args) {
 		/* update when we last checked */
 		time(&last_check);
 		sleep(10);
+	}
+}
+
+void free_args(char **args) {
+	int i = 0;
+	while(args && args[i] != NULL) {
+		free(args[i]);
+		args[i] = NULL;
+		i++;
 	}
 }
 

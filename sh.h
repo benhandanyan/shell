@@ -14,6 +14,7 @@ void kill_process(char *process);
 void *warnload(void *args);
 void *watchuser(void *args);
 void sig_handle(int sig);
+void free_args(char **args);
 
 #define PROMPTMAX 32
 #define MAXARGS 10
