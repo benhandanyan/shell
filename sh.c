@@ -53,6 +53,12 @@ int sh( int argc, char **argv, char **envp ) {
 	int file_redirect, error_redirect, input_redirect = 0;
 	int noclobber = 0;
 
+	/* for use with pipe */
+	int ipc = 0;
+	int ipc_err = 0;
+	int pipefd[2];
+	char **pipeargs = calloc(5, sizeof(char*));
+
 	uid = getuid();
 	password_entry = getpwuid(uid);               /* get passwd info */
 	homedir = getenv("HOME");						/* get homedir */
@@ -283,6 +289,32 @@ int sh( int argc, char **argv, char **envp ) {
 				gl[glc-2] = '\0';
 				gl[glc-1] = '\0';
 				glc = glc - 2;
+			}
+
+			/* Check for inter-process communication */
+			if(glc > 2 && (strcmp(gl[1], "|") == 0 || strcmp(gl[1], "|&") == 0)) {
+				ipc = 1;
+				if(strcmp(gl[1], "|&") == 0) {
+					ipc_err = 1;
+				}
+
+				/* Create our pipe */
+				if(pipe(pipefd) == -1) {
+					perror("pipe");
+					free_args(args);
+					break;
+				}
+
+				/* Put the command to the right of the pipe in a second arguments list */
+				i = 2;
+				int p = 0;
+				while(gl[i] != NULL) {
+					pipeargs[p] = malloc(strlen(gl[i]) + 1 * sizeof(char));
+					pipeargs[p] = gl[i];
+					i++; p++;
+				}
+				gl[1] = '\0';
+				glc = 1;
 			}
 
     		/* check for each built in command and implement */
@@ -599,6 +631,19 @@ int sh( int argc, char **argv, char **envp ) {
 					} else if(pid == 0) {
 						/* print what child is executing and execve it */
  	    				printf("Executing [%s]\n", gl[0]);
+						
+						/* If we are piping this is the command on the left, set standard output to the pipe output */
+						if(ipc) {
+							close(1);
+							dup(pipefd[1]);
+							if(ipc_err) {
+								close(2);
+								dup(pipefd[1]);
+							}
+							close(pipefd[0]);
+							close(pipefd[1]);
+						}
+
 						execve(gl[0], gl, environ);
 						/* on exec error */
 						perror(gl[0]);
@@ -606,11 +651,38 @@ int sh( int argc, char **argv, char **envp ) {
 					} else {
 						/* if not a background process, wait */
 						if(!background) {
-							/* wait for chil process */
-							waitpid(pid, &status, 0);
-							/* if child exits with non-zero status print it */
-							if(WEXITSTATUS(status) != 0) {
-								printf("Exit: %d\n", WEXITSTATUS(status));
+							/* If we are piping this is the command on the right. Wait for the first command to finish */
+							if(ipc) {
+								waitpid(pid, &status, 0);
+								pid_t pid2 = fork();
+								if(pid2 == -1) {
+									perror("fork");
+								} else if (pid2 == 0) {
+									/* Set stdin to be the pipe input */
+									close(0);
+									dup(pipefd[0]);
+									close(pipefd[1]);
+									close(pipefd[0]);
+									
+									/* Which command should we run */
+									char* wh;
+									wh = which(pipeargs[0], pathlist);
+									if(wh == NULL) {
+										fprintf(stderr, "%s: Command not found", pipeargs[0]);
+									} else {
+										execve(wh, pipeargs, environ);
+									}
+								} else {
+									close(pipefd[0]);
+									close(pipefd[1]);
+								}
+							} else {
+								/* wait for chil process */
+								waitpid(pid, &status, 0);
+								/* if child exits with non-zero status print it */
+								if(WEXITSTATUS(status) != 0) {
+									printf("Exit: %d\n", WEXITSTATUS(status));
+								}
 							}
 						}
 					}
@@ -622,7 +694,8 @@ int sh( int argc, char **argv, char **envp ) {
 
 			/* Executable */
 			else {
-				char *wh;
+				char* wh;
+				char* wh2;
 				/* figure out which executable to execute */
 				wh = which(gl[0], pathlist);
 				if(wh == NULL) {
@@ -634,6 +707,19 @@ int sh( int argc, char **argv, char **envp ) {
 					} else if (pid == 0) {
 						/* what we are executing */
  	    				printf("Executing [%s]\n", wh);
+
+						/* If we are piping this is the command on the left, set standard output to be the pipe output*/
+                        if(ipc) {
+                            close(1);
+                            dup(pipefd[1]);
+							if(ipc_err) {
+								close(2);
+								dup(pipefd[1]);
+							}
+                            close(pipefd[0]);
+                            close(pipefd[1]);
+                        }
+
 						execve(wh, gl, environ);
 						/* on execve error */
 						perror(wh);
@@ -641,11 +727,37 @@ int sh( int argc, char **argv, char **envp ) {
 					} else {
 						/* if not a background process, wait */
 						if(!background) {
-							/* wait for child */
-							waitpid(pid, &status, 0);
-							/* if child exits with nonzero value print it */
-							if(WEXITSTATUS(status) != 0){
-								printf("Exit: %d\n", WEXITSTATUS(status));
+
+							/* If we are piping this is the command on the right, wait for command on left to finish */
+							if(ipc) {
+                                waitpid(pid, &status, 0);
+                                pid_t pid2 = fork();
+                                if(pid2 == -1) {
+                                    perror("fork");
+                                } else if (pid2 == 0) {
+									/* Set standard input to be pipe input */
+                                    close(0);
+                                    dup(pipefd[0]);
+                                    close(pipefd[1]);
+                                    close(pipefd[0]);
+									/* Which command should we run */
+                                    wh2 = which(pipeargs[0], pathlist);
+                                    if(wh2 == NULL) {
+                                        fprintf(stderr, "%s: Command not found", pipeargs[0]);
+                                    } else {
+                                        execve(wh2, pipeargs, environ);
+                                    }
+                                } else {
+                                    close(pipefd[0]);
+                                    close(pipefd[1]);
+                                }
+							} else {
+								/* wait for child */
+								waitpid(pid, &status, 0);
+								/* if child exits with nonzero value print it */
+								if(WEXITSTATUS(status) != 0){
+									printf("Exit: %d\n", WEXITSTATUS(status));
+								}
 							}
 						}
 					}
@@ -661,6 +773,7 @@ int sh( int argc, char **argv, char **envp ) {
 
 			/* reset args */
 			free_args(args);
+			free_args(pipeargs);
 
 			/* if we redirected file output, reset it to the screen */
 			if(file_redirect == 1) {
@@ -685,6 +798,9 @@ int sh( int argc, char **argv, char **envp ) {
 				close(fid);
 			}
 
+			ipc = 0;
+			ipc_err = 0;
+
 			sleep(1);
 
 			/* Print prompt again */
@@ -699,7 +815,9 @@ int sh( int argc, char **argv, char **envp ) {
 	free(prompt);
 	free(commandline);
 	free_args(args);
+	free_args(pipeargs);
 	free(args);
+	free(pipeargs);
 	free(owd);
 	free(pwd);
 	struct pathelement *tmp;
