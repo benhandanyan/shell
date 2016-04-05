@@ -375,6 +375,27 @@ int sh( int argc, char **argv, char **envp ) {
 				}
 			}
 
+			/* Build in fg */
+			else if(strcmp(gl[0], "fg") == 0) {
+				printf("Executing build-in [%s]\n", gl[0]);
+				/* No arguments, bring a default process into foreground */
+				if(glc == 1) {
+					kill(0, SIGCONT);
+					wait(NULL);
+				}
+				/* One argument, bring the process with pid into foreground */
+				else if(glc == 2) {
+					if(atoi(gl[1])) {
+						kill(atoi(gl[1]), SIGCONT);
+						waitpid(atoi(gl[1]), NULL, 0);
+					} else {
+						fprintf(stderr, "pid must be an integer\n");
+					}
+				} else {
+					fprintf(stderr, "Usage: fg [pid]\n");
+				}
+			}
+
 			/* Built in list */
 			else if(strcmp(gl[0], "list") == 0) {
 	    		printf("Executing built-in [%s]\n", gl[0]);
