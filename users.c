@@ -11,6 +11,8 @@ struct userelement *add_user(struct userelement *head, char *username) {
 		head = calloc(1, sizeof(struct userelement));
 		head->username = malloc((strlen(username) + 1) * sizeof(char));
 		strcpy(head->username, username);
+		head->logged_on = 0;
+		head->checked = 0;
 		head->next = NULL;
 	} else {
 		struct userelement *tmp;
@@ -18,6 +20,8 @@ struct userelement *add_user(struct userelement *head, char *username) {
 		tmp->username = malloc((strlen(username) + 1) * sizeof(char));
 		strcpy(tmp->username, username);
 		tmp->next = head;
+		tmp->logged_on = 0;
+		head->checked = 0;
 		head = tmp;
 	}
 	return head;
@@ -70,4 +74,60 @@ int contains_user(struct userelement *head, char *username) {
 		}
 	}
 	return 0;
+}
+
+/* Mark that the user with username has logged in since we started watching that user */
+struct userelement* login(struct userelement *head, char *username) {
+	struct userelement *tmp;
+	tmp = head;
+	while(tmp != NULL) {
+		if(strcmp(tmp->username, username) == 0) {
+			tmp->logged_on = 1;
+			return head;
+		}
+		tmp = tmp->next;
+	}
+	return head;
+}
+
+/* Mark that the user with username has logged off */
+struct userelement* logoff(struct userelement *head, char* username) {
+	struct userelement *tmp;
+	tmp = head;
+	while(tmp != NULL) {
+		if(strcmp(tmp->username, username) == 0) {
+			if(tmp->logged_on == 1) {
+				tmp->logged_on = 0;
+				printf("%s logged off.\n", tmp->username);
+				return head;
+			}
+		}
+		tmp = tmp->next;
+	}
+	return head;
+}
+
+/* Mark that the user was checked (meaning logged on) in this iteration of the loop */
+struct userelement* check(struct userelement *head, char* username) {
+	struct userelement *tmp;
+	tmp = head;
+	while(tmp != NULL) {
+		if(strcmp(tmp->username, username) == 0) {
+			tmp->checked = 1;
+			return head;
+		}
+		tmp = tmp->next;
+	}
+	return head;
+}
+
+/* At the end of the loop, uncheck all users so they can be rechecked next time */
+struct userelement* uncheckAll(struct userelement *head) {
+	struct userelement *tmp;
+	tmp = head;
+	while(tmp != NULL) {
+		tmp->checked = 0;
+		tmp = tmp->next;
+	}
+	return head;
 }

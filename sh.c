@@ -375,6 +375,11 @@ int sh( int argc, char **argv, char **envp ) {
 				}
 			}
 
+			/* WATCHMAIL NOT IMPLEMENTED */
+			else if(strcmp(gl[0], "watchmail") == 0) {
+				printf("We were not able to implement watchmail as we could not figure out\nhow to correctly use pthread_cancel(3) to cancel threads\n");
+			}
+
 			/* Build in fg */
 			else if(strcmp(gl[0], "fg") == 0) {
 				printf("Executing build-in [%s]\n", gl[0]);
@@ -1011,7 +1016,7 @@ void *warnload(void *args) {
 	}
 }
 
-/* watch for users signing on */
+/* watch for users signing ON and OFF */
 void *watchuser(void *args) {
 	struct userarg *userargs;
 	struct userelement *users;
@@ -1019,6 +1024,7 @@ void *watchuser(void *args) {
 	struct utmpx *up;
 	int contains;
 	time_t last_check;
+	struct userelement *tmp;
 
 	/* get the current time */
 	time(&last_check);
@@ -1034,21 +1040,48 @@ void *watchuser(void *args) {
 
 				/* check if the user is a watched user */
 				pthread_mutex_lock(&lock);
-				contains = contains_user(userargs->users, up->ut_user);
+				contains = contains_user(users, up->ut_user);
 				pthread_mutex_unlock(&lock);
 
 				/* if the user is watched and has logged on since we last checked, print */
 				if(contains == 1 && (int)up->ut_tv.tv_sec > (int)last_check) {
 					printf("\n%s has logged on %s from %s\n", up->ut_user, up->ut_line, up->ut_host);
+					/* Mark the user as having logged in */
+					pthread_mutex_lock(&lock);
+					users = login(users, up->ut_user);
+					pthread_mutex_unlock(&lock);
+				}
+				if (contains == 1) {
+					/* If the user is in the loop they are logged on. Mark as checked regardless of when they logged on */
+					pthread_mutex_lock(&lock);
+					users = check(users, up->ut_user);
+					pthread_mutex_unlock(&lock);
 				}
 			}
 		}
+
+		/* Check for users that have logged off */
+		pthread_mutex_lock(&lock);
+		tmp = users;
+		while(tmp != NULL) {
+			/* If we didn't see the user logged in this time but they had logged on before consider the user logged off */
+			if(tmp->checked == 0 && tmp->logged_on) {
+				/* Mark the user as logged off, and print (in the logoff function) */
+				users = logoff(users, tmp->username);
+			}
+			tmp = tmp->next;
+		}
+		/* Uncheck all users for the next loop */
+		users = uncheckAll(users);	
+		pthread_mutex_unlock(&lock);
+
 		/* update when we last checked */
 		time(&last_check);
 		sleep(10);
 	}
 }
 
+/* Helper to free argument(s) memory */
 void free_args(char **args) {
 	int i = 0;
 	while(args && args[i] != NULL) {
